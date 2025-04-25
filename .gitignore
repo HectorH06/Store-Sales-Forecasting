@@ -1,0 +1,14 @@
+.Rproj.user
+.RDataTmp
+.Rhistory
+.RData
+.Ruserdata
+
+*.html
+*.json
+*.py
+*.ipynb
+
+*_files/
+
+*.csv

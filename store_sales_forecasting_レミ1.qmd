@@ -1,0 +1,221 @@
+---
+title: "Store Sales Prediction - Blended Model"
+author: "Remi Heredia"
+format: pdf
+editor: visual
+---
+
+# Importación de Datos
+
+Este archivo predice las ventas de tiendas a partir de datos históricos utilizando un modelo de *blending* y *stacking*.
+
+## Cargar Librerías
+
+```{r}
+#| label: pkgs
+#| message: false
+#| warning: false
+
+library(conflicted)
+## install kaggler package from github
+# pak::pak("mkearney/kaggler")
+library(tidyverse)
+library(lubridate)
+library(caret)
+library(xgboost)
+library(kaggler)
+library(tsibble)
+library(feasts)
+library(fable)
+
+conflicts_prefer(
+  lubridate::date(),
+  dplyr::filter()
+)
+```
+
+```{r}
+# cargamos datos
+df_train <- read_csv("train.csv")
+df_holidays_events <- read_csv("holidays_events.csv")
+df_oil <- read_csv("oil.csv")
+df_stores <- read_csv("stores.csv")
+df_transactions <- read_csv("transactions.csv")
+df_test <- read_csv("test.csv")
+df_sample_submission <- read_csv("sample_submission.csv")
+
+head(df_train)
+head(df_holidays_events)
+head(df_oil)
+head(df_stores)
+head(df_transactions)
+head(df_test)
+head(df_sample_submission)
+
+```
+
+```{r}
+# listamos familias de productos y de tiendas
+family_list <- unique(df_train$family)
+store_list <- unique(df_stores$store_nbr)
+
+```
+
+```{r}
+# fusionamos datos de ventas con la info de las tiendas
+train_merged <- df_train %>%
+  left_join(df_stores, by = "store_nbr") %>%
+  arrange(store_nbr, family, date) %>%
+  mutate(across(c(store_nbr, family, city, state, type, cluster), as.character))
+
+head(train_merged)
+
+```
+
+```{r}
+# convertimos las fechas a date
+train_merged$date <- as.Date(train_merged$date, format = "%Y-%m-%d")
+
+# lista de TS para cada familia de productos
+family_TS_dict <- list()
+
+for (family in family_list) {
+  df_family <- train_merged %>% filter(family == !!family)
+  
+  family_TS_dict[[family]] <- df_family %>%
+    group_by(store_nbr, family) %>%
+    arrange(date) %>%
+    select(date, sales)
+}
+
+head(family_TS_dict[[1]])
+
+```
+
+```{r}
+# generamos covariables basadas en atributos temporales
+full_time_period <- seq.Date(from = as.Date("2013-01-01"), to = as.Date("2017-08-31"), by = "day")
+
+time_cov <- tibble(
+  date = full_time_period,
+  year = year(full_time_period),
+  month = month(full_time_period),
+  day = day(full_time_period),
+  dayofyear = yday(full_time_period),
+  weekday = wday(full_time_period),
+  weekofyear = week(full_time_period)
+)
+
+head(time_cov)
+
+```
+
+```{r}
+# TS para el precio del petróleo
+oil <- df_oil %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d")) %>%
+  select(date, dcoilwtico)
+
+oil_ts <- ts(oil$dcoilwtico, frequency = 365, start = c(2013, 1))
+
+plot(oil_ts)
+
+```
+
+```{r}
+# creamos covariables de holidays
+holiday_list <- df_holidays_events %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d")) %>%
+  group_by(date) %>%
+  summarize(national_holiday = sum(type == "Holiday" & locale == "National"),
+            earthquake_relief = sum(str_detect(description, "Terremoto Manabi")),
+            christmas = sum(str_detect(description, "Navidad")),
+            football_event = sum(str_detect(description, "futbol")),
+            national_event = sum(type == "Event" & locale == "National"),
+            work_day = sum(type == "Work Day"),
+            local_holiday = sum(type == "Holiday" & locale_name %in% df_stores$state))
+
+head(holiday_list)
+
+```
+
+```{r}
+# preparamos las covariables de trn (usando transformaciones de fechas, oil y holiday)
+train_data <- df_train %>%
+  left_join(time_cov, by = "date") %>%
+  left_join(oil, by = "date") %>%
+  left_join(holiday_list, by = "date")
+
+# train/test
+set.seed(6)
+train_index <- createDataPartition(train_data$sales, p = 0.8, list = FALSE)
+train_set <- train_data[train_index, ]
+test_set <- train_data[-train_index, ]
+
+```
+
+```{r}
+# convertimos cols que sean str a numéricas
+train_set_numeric <- train_set %>%
+  mutate_if(is.factor, as.character) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_if(is.factor, as.numeric)
+
+test_set_numeric <- test_set %>%
+  mutate_if(is.factor, as.character) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_if(is.factor, as.numeric)
+
+# ajustamos los datos para el modelo XGBoost
+train_matrix <- xgb.DMatrix(data = as.matrix(train_set_numeric %>% select(-date, -sales)), label = train_set_numeric$sales)
+test_matrix <- xgb.DMatrix(data = as.matrix(test_set_numeric %>% select(-date, -sales)), label = test_set_numeric$sales)
+
+```
+
+
+```{r}
+# establecemos params
+params <- list(
+  objective = "reg:squarederror",
+  booster = "gbtree",
+  max_depth = 6,
+  eta = 0.1,
+  nthread = 2
+)
+
+# trn/pred/eval
+xgb_model <- xgboost(params = params, data = train_matrix, nrounds = 100)
+
+predictions <- predict(xgb_model, test_matrix)
+
+
+RMSE <- sqrt(mean((predictions - test_set$sales)^2))
+print(paste("RMSE: ", RMSE))
+MAE <- mean(abs(predictions - test_set$sales))
+print(paste("MAE: ", MAE))
+MAPE <- mean(abs((predictions - test_set$sales) / test_set$sales)) * 100
+print(paste("MAPE: ", MAPE))
+SS_residual <- sum((predictions - test_set$sales)^2)
+SS_total <- sum((test_set$sales - mean(test_set$sales))^2)
+R2 <- 1 - (SS_residual / SS_total)
+print(paste("R²: ", R2))
+rmsle <- sqrt(mean((log(predictions + 1) - log(test_set$sales + 1))^2))
+print(paste("RMSLE: ", rmsle))
+
+
+```
+
+```{r}
+nrow(df_sample_submission)
+length(predictions)
+
+# truncamos si nos pasamos de predicciones
+predictions_adjusted <- predictions[1:nrow(df_sample_submission)]
+
+# df a subir
+submission <- data.frame(id = df_sample_submission$id, sales = predictions_adjusted)
+submission$sales <- pmax(submission$sales, 0)  # evitamos pred con signo negativo
+
+# we uploadin'
+write.csv(submission, "submission_remi.csv", row.names = FALSE)
+```

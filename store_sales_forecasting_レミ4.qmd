@@ -1,5 +1,5 @@
 ---
-title: "ARIMA"
+title: "SARIMA"
 author: "Remi Heredia"
 format: html
 editor: visual
@@ -184,32 +184,41 @@ series_ceros_fcst
 ## Fit
 
 ```{r}
+# Elegimos un SARIMA(0,1,1)(0,1,1)[7]  ─– 7 = periodicidad semanal; ajusta si tu serie usa otra
+# Quita/elije otros órdenes si albergas estacionalidad anual (p. ej. 365) u otra frecuencia.
+# Con stepwise = FALSE obligamos a la búsqueda exhaustiva y garantizamos la parte estacional.
 tictoc::tic()
-series_tsbl_fit <- series_tsbl |> 
+series_tsbl_fit <- series_tsbl %>% 
   model(
-    arima = ARIMA(sales)
+    sarima = ARIMA(
+      sales ~ pdq(0,1,1) +           # parte no estacional (p, d, q)
+              PDQ(0,1,1, 7),         # parte estacional (P, D, Q)[periodo]
+      stepwise      = FALSE,
+      approximation = FALSE          # evita aproximaciones para un ajuste exacto
+    )
   )
 tictoc::toc()
 
-series_tsbl_fit
-
+# ────────────────────────────
+# Evaluación idéntica
 accuracy_stats <- accuracy(series_tsbl_fit)
 accuracy_stats
 
-predictions <- fitted(series_tsbl_fit)$.mean
-real_values <- series_tsbl$sales
+predictions  <- fitted(series_tsbl_fit)$.mean
+real_values  <- series_tsbl$sales
 
 rmse_value <- accuracy_stats$RMSE
-mae_value <- accuracy_stats$MAE
+mae_value  <- accuracy_stats$MAE
 mape_value <- accuracy_stats$MAPE
-rsq_value <- accuracy_stats$RSQ
-rmsle <- sqrt(mean((log(real_values + 1) - log(predictions + 1))^2))
+rsq_value  <- accuracy_stats$RSQ
+rmsle      <- sqrt(mean((log(real_values + 1) - log(predictions + 1))^2))
 
-print(paste("RMSE: ", rmse_value))
-print(paste("MAE: ", mae_value))
-print(paste("MAPE: ", mape_value))
-print(paste("R²: ", rsq_value))
+print(paste("RMSE: ",  rmse_value))
+print(paste("MAE: ",   mae_value))
+print(paste("MAPE: ",  mape_value))
+print(paste("R²: ",    rsq_value))
 print(paste("RMSLE: ", rmsle))
+
 
 ```
 
@@ -256,6 +265,6 @@ submission
 
 ```{r}
 submission |> 
-  write_csv("submission_remi3.csv")
+  write_csv("submission_remi4.csv")
 ```
 

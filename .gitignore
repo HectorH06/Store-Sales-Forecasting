@@ -7,7 +7,6 @@
 *.html
 *.json
 *.py
-*.ipynb
 
 *_files/
 
@@ -15,3 +14,6 @@
 
 fams
 catboost_info
+Store_Sales_Time_Series_Forecasting.ipynb
+Store_Sales_Prediction_Blended_Model.ipynb
+ds24_class9_group1_kume.ipynb

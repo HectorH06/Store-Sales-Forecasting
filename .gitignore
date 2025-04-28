@@ -12,3 +12,6 @@
 *_files/
 
 *.csv
+
+fams
+catboost_info

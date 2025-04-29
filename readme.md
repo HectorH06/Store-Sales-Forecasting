@@ -39,3 +39,9 @@ The only jupyter here is the one that actually got a nice score (LGBM vs CatBoos
 1. Install requirements with the following command :
 
    `pip install numpy pandas scikit-learn lightgbm catboost matplotlib seaborn`
+
+## References
+I used models and feature engineering from these two models
+
+1. https://www.kaggle.com/code/abzu1245/ds24-class9-group1-kume
+2. https://www.kaggle.com/code/wajahat1064/store-sales-prediction-blended-model

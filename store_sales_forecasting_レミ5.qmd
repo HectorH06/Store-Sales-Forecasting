@@ -1,5 +1,5 @@
 ---
-title: "SARIMA"
+title: "SARIMA Log"
 author: "Remi Heredia"
 format: html
 editor: visual
